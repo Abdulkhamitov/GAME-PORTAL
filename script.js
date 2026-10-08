@@ -1,4 +1,248 @@
-// ===== Звёздный фон =====
+// ==========================================================
+// ===== МЕНЕДЖЕР ХРАНИЛИЩА (localStorage) =====
+// ==========================================================
+const Store = {
+    KEYS: {
+        THEME: 'gp_theme',
+        MUSIC: 'gp_music',
+        USERS: 'gp_users',
+        CURRENT_USER: 'gp_current_user',
+        LEADERBOARDS: 'gp_leaderboards'
+    },
+
+    get(key, def = null) {
+        try {
+            const v = localStorage.getItem(key);
+            return v ? JSON.parse(v) : def;
+        } catch { return def; }
+    },
+
+    set(key, val) {
+        try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+    }
+};
+
+// ==========================================================
+// ===== АВТОРИЗАЦИЯ =====
+// ==========================================================
+const Auth = {
+    // Получить всех пользователей
+    getUsers() {
+        return Store.get(Store.KEYS.USERS, {});
+    },
+
+    // Текущий пользователь
+    getCurrent() {
+        return Store.get(Store.KEYS.CURRENT_USER, null);
+    },
+
+    // Регистрация
+    register(nickname, password) {
+        const users = this.getUsers();
+        const key = nickname.toLowerCase();
+
+        if (users[key]) {
+            return { ok: false, error: 'Такой никнейм уже занят' };
+        }
+
+        const avatar = nickname.charAt(0).toUpperCase();
+        users[key] = {
+            nickname,
+            password, // ВАЖНО: для демо, в реальном проекте используйте хеширование
+            avatar,
+            registered: Date.now(),
+            totalScore: 0,
+            gamesPlayed: 0,
+            records: {} // { gameId: score }
+        };
+
+        Store.set(Store.KEYS.USERS, users);
+        Store.set(Store.KEYS.CURRENT_USER, key);
+        return { ok: true, user: users[key] };
+    },
+
+    // Вход
+    login(nickname, password) {
+        const users = this.getUsers();
+        const key = nickname.toLowerCase();
+
+        if (!users[key]) {
+            return { ok: false, error: 'Игрок не найден' };
+        }
+        if (users[key].password !== password) {
+            return { ok: false, error: 'Неверный пароль' };
+        }
+
+        Store.set(Store.KEYS.CURRENT_USER, key);
+        return { ok: true, user: users[key] };
+    },
+
+    // Выход
+    logout() {
+        Store.set(Store.KEYS.CURRENT_USER, null);
+    },
+
+    // Обновить данные пользователя
+    updateUser(callback) {
+        const current = this.getCurrent();
+        if (!current) return;
+
+        const users = this.getUsers();
+        callback(users[current]);
+        Store.set(Store.KEYS.USERS, users);
+    }
+};
+
+// ==========================================================
+// ===== ТАБЛИЦА ЛИДЕРОВ =====
+// ==========================================================
+const Leaderboard = {
+    // Получить все таблицы
+    getAll() {
+        return Store.get(Store.KEYS.LEADERBOARDS, {});
+    },
+
+    // Получить таблицу по игре
+    get(gameId) {
+        const all = this.getAll();
+        return all[gameId] || [];
+    },
+
+    // Записать результат
+    submit(gameId, score, type = 'high') {
+        // type: 'high' — чем больше, тем лучше (snake, shooter, memory, puzzle)
+        //       'low'  — чем меньше, тем лучше (reaction)
+        //       'moves' — чем меньше, тем лучше (guess - попытки)
+
+        const all = this.getAll();
+        if (!all[gameId]) all[gameId] = [];
+
+        const current = Auth.getCurrent();
+        const users = Auth.getUsers();
+        const user = current ? users[current] : null;
+
+        const nickname = user ? user.nickname : 'Гость';
+        const avatar = user ? user.avatar : 'Г';
+        const date = new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+
+        const record = {
+            nickname,
+            avatar,
+            score,
+            date,
+            timestamp: Date.now(),
+            isCurrentUser: !!user,
+            userId: current || null
+        };
+
+        all[gameId].push(record);
+
+        // Сортировка
+        all[gameId].sort((a, b) => {
+            if (type === 'low' || type === 'moves') {
+                return a.score - b.score;
+            }
+            return b.score - a.score;
+        });
+
+        // Оставляем только топ-20
+        all[gameId] = all[gameId].slice(0, 20);
+
+        Store.set(Store.KEYS.LEADERBOARDS, all);
+
+        // Обновляем личный рекорд игрока
+        if (user) {
+            Auth.updateUser(u => {
+                const prev = u.records[gameId];
+                const isBetter = type === 'high'
+                    ? (!prev || score > prev)
+                    : (!prev || score < prev);
+
+                if (isBetter) {
+                    u.records[gameId] = score;
+                }
+                u.gamesPlayed = (u.gamesPlayed || 0) + 1;
+                u.totalScore = (u.totalScore || 0) + (type === 'high' ? score : Math.max(0, 1000 - score));
+            });
+        }
+
+        // Перерисовываем таблицу, если открыта
+        if (currentBoard === gameId) {
+            renderLeaderboard();
+        }
+
+        return record;
+    },
+
+    // Очистить таблицу
+    clear(gameId) {
+        const all = this.getAll();
+        all[gameId] = [];
+        Store.set(Store.KEYS.LEADERBOARDS, all);
+        renderLeaderboard();
+    }
+};
+
+// Какая таблица сейчас открыта
+let currentBoard = 'snake';
+
+// ==========================================================
+// ===== РЕНДЕР ТАБЛИЦЫ ЛИДЕРОВ =====
+// ==========================================================
+function renderLeaderboard() {
+    const body = document.getElementById('leaderboardBody');
+    const data = Leaderboard.get(currentBoard);
+
+    if (data.length === 0) {
+        body.innerHTML = `
+            <div class="leaderboard-empty">
+                <span class="empty-icon">🏆</span>
+                <p>Пока нет рекордов. Стань первым!</p>
+            </div>`;
+        return;
+    }
+
+    const medals = ['🥇', '🥈', '🥉'];
+    const current = Auth.getCurrent();
+
+    body.innerHTML = data.map((r, i) => {
+        const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+        const rankContent = i < 3 ? medals[i] : `${i + 1}`;
+        const isCurrent = current && r.userId === current;
+
+        return `
+            <div class="leader-row ${isCurrent ? 'current' : ''}">
+                <span class="leader-rank ${rankClass}">${rankContent}</span>
+                <span class="leader-name">
+                    <span class="leader-avatar">${r.avatar}</span>
+                    ${r.nickname}${isCurrent ? ' <span style="color:var(--neon-pink);font-size:12px;">(вы)</span>' : ''}
+                </span>
+                <span class="leader-score">${r.score}</span>
+                <span class="leader-date">${r.date}</span>
+            </div>
+        `;
+    }).join('');
+}
+
+// Обработчики переключения таблиц
+document.querySelectorAll('.leader-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.leader-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentBoard = tab.dataset.board;
+        renderLeaderboard();
+    });
+});
+
+document.getElementById('clearBoard').addEventListener('click', () => {
+    if (confirm('Уверены, что хотите очистить эту таблицу лидеров?')) {
+        Leaderboard.clear(currentBoard);
+    }
+});
+
+// ==========================================================
+// ===== ЗВЁЗДНЫЙ ФОН =====
+// ==========================================================
 const bg = document.getElementById('bg');
 const ctx = bg.getContext('2d');
 let particles = [];
@@ -29,11 +273,9 @@ window.addEventListener('resize', createParticles);
 
 function animateBg() {
     ctx.clearRect(0, 0, bg.width, bg.height);
-
     particles.forEach((p, i) => {
         p.x += p.vx;
         p.y += p.vy;
-
         if (p.x < 0 || p.x > bg.width) p.vx *= -1;
         if (p.y < 0 || p.y > bg.height) p.vy *= -1;
 
@@ -42,7 +284,6 @@ function animateBg() {
         ctx.fillStyle = `rgba(${p.color}, 0.7)`;
         ctx.fill();
 
-        // Соединения
         particles.slice(i + 1).forEach(p2 => {
             const dx = p.x - p2.x;
             const dy = p.y - p2.y;
@@ -57,12 +298,13 @@ function animateBg() {
             }
         });
     });
-
     requestAnimationFrame(animateBg);
 }
 animateBg();
 
-// ===== Счётчики =====
+// ==========================================================
+// ===== СЧЁТЧИКИ =====
+// ==========================================================
 function animateCounter(el, target, duration = 2000) {
     let current = 0;
     const step = target / (duration / 16);
@@ -83,19 +325,335 @@ window.addEventListener('load', () => {
     animateCounter(document.getElementById('statGames'), 1000);
 });
 
-// ===== Бургер-меню =====
+// ==========================================================
+// ===== ТЕМА =====
+// ==========================================================
+const themeBtn = document.getElementById('themeBtn');
+const savedTheme = Store.get(Store.KEYS.THEME, 'dark');
+document.body.dataset.theme = savedTheme;
+themeBtn.textContent = savedTheme === 'dark' ? '🌙' : '☀️';
+
+themeBtn.addEventListener('click', () => {
+    const newTheme = document.body.dataset.theme === 'dark' ? 'light' : 'dark';
+    document.body.dataset.theme = newTheme;
+    themeBtn.textContent = newTheme === 'dark' ? '🌙' : '☀️';
+    Store.set(Store.KEYS.THEME, newTheme);
+});
+
+// ==========================================================
+// ===== ФОНОВАЯ МУЗЫКА =====
+// ==========================================================
+const musicBtn = document.getElementById('musicBtn');
+const musicIndicator = document.getElementById('musicIndicator');
+
+// Синтезируем фоновую музыку через Web Audio API (не требует mp3-файла)
+let audioCtx = null;
+let musicPlaying = false;
+let musicTimer = null;
+let musicNodes = [];
+
+function initAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+}
+
+// Простая мелодия — генерируем ноты
+function playNote(freq, time, duration, volume = 0.08, type = 'sine') {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    osc.type = type;
+    osc.frequency.value = freq;
+
+    gain.gain.setValueAtTime(0, time);
+    gain.gain.linearRampToValueAtTime(volume, time + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    osc.start(time);
+    osc.stop(time + duration);
+
+    musicNodes.push(osc);
+}
+
+// Мелодия (frequencies в Гц)
+const NOTES = {
+    C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.00, A4: 440.00, B4: 493.88,
+    C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99, A5: 880.00,
+    C3: 130.81, E3: 164.81, G3: 196.00, A3: 220.00
+};
+
+// Простая чиллаут-мелодия (зацикленная)
+const melody = [
+    { note: 'C4', dur: 0.4 },
+    { note: 'E4', dur: 0.4 },
+    { note: 'G4', dur: 0.4 },
+    { note: 'E4', dur: 0.4 },
+    { note: 'A4', dur: 0.4 },
+    { note: 'G4', dur: 0.4 },
+    { note: 'E4', dur: 0.8 },
+    { note: 'D4', dur: 0.4 },
+    { note: 'F4', dur: 0.4 },
+    { note: 'A4', dur: 0.4 },
+    { note: 'F4', dur: 0.4 },
+    { note: 'G4', dur: 0.4 },
+    { note: 'E4', dur: 0.4 },
+    { note: 'C4', dur: 0.8 },
+];
+
+// Басовая линия
+const bassLine = [
+    { note: 'C3', dur: 1.6 },
+    { note: 'A3', dur: 1.6 },
+    { note: 'F3', dur: 1.6 },
+    { note: 'G3', dur: 1.6 },
+];
+
+function playLoop() {
+    if (!musicPlaying) return;
+    const now = audioCtx.currentTime;
+    let t = 0;
+
+    // Мелодия
+    melody.forEach(n => {
+        playNote(NOTES[n.note], now + t, n.dur * 0.9, 0.06, 'sine');
+        t += n.dur;
+    });
+
+    const melodyDuration = t;
+
+    // Бас (играет параллельно)
+    let bt = 0;
+    bassLine.forEach(n => {
+        playNote(NOTES[n.note], now + bt, n.dur * 0.9, 0.04, 'triangle');
+        bt += n.dur;
+    });
+
+    // Повторяем через длительность мелодии
+    musicTimer = setTimeout(() => playLoop(), melodyDuration * 1000);
+}
+
+function startMusic() {
+    initAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    musicPlaying = true;
+    playLoop();
+    musicIndicator.classList.add('active');
+    musicBtn.textContent = '🔊';
+    Store.set(Store.KEYS.MUSIC, true);
+}
+
+function stopMusic() {
+    musicPlaying = false;
+    if (musicTimer) clearTimeout(musicTimer);
+    musicNodes.forEach(n => { try { n.stop(); } catch {} });
+    musicNodes = [];
+    musicIndicator.classList.remove('active');
+    musicBtn.textContent = '🎵';
+    Store.set(Store.KEYS.MUSIC, false);
+}
+
+// Восстанавливаем состояние музыки при загрузке
+const musicWasOn = Store.get(Store.KEYS.MUSIC, false);
+if (musicWasOn) {
+    // Автовоспроизведение требует взаимодействия пользователя — ждём первый клик
+    const autoStart = () => {
+        startMusic();
+        document.removeEventListener('click', autoStart);
+    };
+    document.addEventListener('click', autoStart, { once: true });
+    musicBtn.textContent = '🔊';
+    musicIndicator.classList.add('active');
+}
+
+musicBtn.addEventListener('click', () => {
+    if (musicPlaying) stopMusic();
+    else startMusic();
+});
+
+// ==========================================================
+// ===== АВТОРИЗАЦИЯ (UI) =====
+// ==========================================================
+const authModal = document.getElementById('authModal');
+const profileModal = document.getElementById('profileModal');
+const userBtn = document.getElementById('userBtn');
+const authForm = document.getElementById('authForm');
+const authTitle = document.getElementById('authTitle');
+const authSubtitle = document.getElementById('authSubtitle');
+const authSubmit = document.getElementById('authSubmit');
+const authMessage = document.getElementById('authMessage');
+const authToggleText = document.getElementById('authToggleText');
+const authToggleLink = document.getElementById('authToggleLink');
+
+let authMode = 'register'; // 'register' | 'login'
+
+function openAuthModal(mode = 'register') {
+    authMode = mode;
+    authMessage.textContent = '';
+    authForm.reset();
+
+    if (mode === 'register') {
+        authTitle.textContent = 'Регистрация';
+        authSubtitle.textContent = 'Создай аккаунт, чтобы сохранять рекорды';
+        authSubmit.textContent = 'Зарегистрироваться';
+        authToggleText.textContent = 'Уже есть аккаунт?';
+        authToggleLink.textContent = 'Войти';
+    } else {
+        authTitle.textContent = 'Вход';
+        authSubtitle.textContent = 'Войди, чтобы продолжить игру';
+        authSubmit.textContent = 'Войти';
+        authToggleText.textContent = 'Нет аккаунта?';
+        authToggleLink.textContent = 'Создать';
+    }
+
+    authModal.classList.add('active');
+    setTimeout(() => document.getElementById('authNickname').focus(), 300);
+}
+
+function closeModal(modal) {
+    modal.classList.remove('active');
+}
+
+authToggleLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    openAuthModal(authMode === 'register' ? 'login' : 'register');
+});
+
+document.getElementById('authClose').addEventListener('click', () => closeModal(authModal));
+document.getElementById('profileClose').addEventListener('click', () => closeModal(profileModal));
+
+authModal.addEventListener('click', (e) => {
+    if (e.target === authModal) closeModal(authModal);
+});
+profileModal.addEventListener('click', (e) => {
+    if (e.target === profileModal) closeModal(profileModal);
+});
+
+// Отправка формы регистрации/входа
+authForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const nickname = document.getElementById('authNickname').value.trim();
+    const password = document.getElementById('authPassword').value;
+
+    if (!nickname || !password) {
+        authMessage.textContent = 'Заполни все поля';
+        return;
+    }
+
+    let result;
+    if (authMode === 'register') {
+        result = Auth.register(nickname, password);
+    } else {
+        result = Auth.login(nickname, password);
+    }
+
+    if (result.ok) {
+        authMessage.style.color = 'var(--neon-green)';
+        authMessage.textContent = authMode === 'register' ? '🎉 Аккаунт создан!' : '✅ Вход выполнен!';
+        updateAuthUI();
+        setTimeout(() => {
+            closeModal(authModal);
+            renderLeaderboard();
+        }, 800);
+    } else {
+        authMessage.style.color = 'var(--neon-pink)';
+        authMessage.textContent = '❌ ' + result.error;
+    }
+});
+
+// Кнопка "Профиль"
+userBtn.addEventListener('click', () => {
+    const user = Auth.getCurrent();
+    if (user) {
+        openProfile();
+    } else {
+        openAuthModal('register');
+    }
+});
+
+function updateAuthUI() {
+    const user = Auth.getCurrent();
+    if (user) {
+        userBtn.classList.add('active');
+        userBtn.textContent = user.avatar;
+        userBtn.title = user.nickname;
+    } else {
+        userBtn.classList.remove('active');
+        userBtn.textContent = '👤';
+        userBtn.title = 'Войти';
+    }
+}
+
+// Профиль
+function openProfile() {
+    const current = Auth.getCurrent();
+    if (!current) return;
+    const users = Auth.getUsers();
+    const user = users[current];
+    if (!user) return;
+
+    document.getElementById('profileAvatar').textContent = user.avatar;
+    document.getElementById('profileName').textContent = user.nickname;
+    document.getElementById('profileTotalScore').textContent = user.totalScore || 0;
+    document.getElementById('profileGamesPlayed').textContent = user.gamesPlayed || 0;
+
+    // Достижения (за каждую игру с рекордом)
+    const achievements = Object.keys(user.records || {}).length;
+    document.getElementById('profileAchievements').textContent = achievements;
+
+    // Рекорды
+    const gameNames = {
+        snake: '🐍 Змейка',
+        guess: '🧠 Угадай число',
+        reaction: '🎯 Реакция',
+        puzzle: '🧩 Пятнашки',
+        memory: '🃏 Память',
+        shooter: '👾 Шутер'
+    };
+
+    const recordsEl = document.getElementById('profileRecords');
+    const records = user.records || {};
+    const keys = Object.keys(records);
+
+    if (keys.length === 0) {
+        recordsEl.innerHTML = '<div class="profile-record-empty">Пока нет рекордов. Играй!</div>';
+    } else {
+        recordsEl.innerHTML = keys.map(g => `
+            <div class="profile-record-item">
+                <span>${gameNames[g] || g}</span>
+                <strong>${records[g]}</strong>
+            </div>
+        `).join('');
+    }
+
+    profileModal.classList.add('active');
+}
+
+// Выход
+document.getElementById('logoutBtn').addEventListener('click', () => {
+    Auth.logout();
+    updateAuthUI();
+    closeModal(profileModal);
+    renderLeaderboard();
+});
+
+// ==========================================================
+// ===== БУРГЕР-МЕНЮ =====
+// ==========================================================
 const burger = document.getElementById('burger');
 const navLinks = document.querySelector('.nav-links');
 
-burger.addEventListener('click', () => {
-    navLinks.classList.toggle('active');
-});
-
+burger.addEventListener('click', () => navLinks.classList.toggle('active'));
 document.querySelectorAll('.nav-links a').forEach(link => {
     link.addEventListener('click', () => navLinks.classList.remove('active'));
 });
 
-// ===== Плавная прокрутка =====
+// ==========================================================
+// ===== ПЛАВНАЯ ПРОКРУТКА =====
+// ==========================================================
 document.querySelectorAll('a[href^="#"]').forEach(link => {
     link.addEventListener('click', (e) => {
         e.preventDefault();
@@ -104,13 +662,14 @@ document.querySelectorAll('a[href^="#"]').forEach(link => {
     });
 });
 
-// ===== Фильтры каталога =====
+// ==========================================================
+// ===== ФИЛЬТРЫ КАТАЛОГА =====
+// ==========================================================
 document.querySelectorAll('.filter').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('.filter').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         const filter = btn.dataset.filter;
-
         document.querySelectorAll('.game-card').forEach(card => {
             if (filter === 'all' || card.dataset.category === filter) {
                 card.classList.remove('hidden');
@@ -121,19 +680,21 @@ document.querySelectorAll('.filter').forEach(btn => {
     });
 });
 
-// ===== Навбар при скролле =====
+// ==========================================================
+// ===== NAVBAR ПРИ СКРОЛЛЕ =====
+// ==========================================================
 window.addEventListener('scroll', () => {
     const nav = document.querySelector('.navbar');
     if (window.scrollY > 50) {
-        nav.style.padding = '12px 50px';
-        nav.style.background = 'rgba(10, 10, 26, 0.98)';
+        nav.style.padding = window.innerWidth < 900 ? '12px 20px' : '12px 50px';
     } else {
-        nav.style.padding = '18px 50px';
-        nav.style.background = 'rgba(10, 10, 26, 0.85)';
+        nav.style.padding = window.innerWidth < 900 ? '15px 20px' : '18px 50px';
     }
 });
 
-// ===== Обработка формы =====
+// ==========================================================
+// ===== ФОРМА КОНТАКТОВ =====
+// ==========================================================
 const form = document.getElementById('contactForm');
 const formMsg = document.getElementById('formMessage');
 form.addEventListener('submit', (e) => {
@@ -144,7 +705,9 @@ form.addEventListener('submit', (e) => {
     setTimeout(() => formMsg.textContent = '', 4000);
 });
 
+// ==========================================================
 // ===== ИГРОВАЯ ЗОНА =====
+// ==========================================================
 const gameBody = document.getElementById('gameBody');
 const gameTitle = document.getElementById('gameTitle');
 const gameScoreEl = document.getElementById('gameScore');
@@ -155,6 +718,16 @@ let currentGame = null;
 let gameScore = 0;
 let gameBest = 0;
 
+// Типы таблиц: 'high' — больше = лучше, 'low' — меньше = лучше
+const GAME_TYPES = {
+    snake: 'high',
+    guess: 'low',     // меньше попыток = лучше
+    reaction: 'low',  // меньше время = лучше
+    puzzle: 'low',    // меньше ходов = лучше
+    memory: 'low',    // меньше ходов = лучше
+    shooter: 'high'
+};
+
 function setScore(v) {
     gameScore = v;
     gameScoreEl.textContent = v;
@@ -164,7 +737,24 @@ function setScore(v) {
     }
 }
 
-function resetScore() { setScore(0); }
+function resetScore() {
+    // Показываем личный рекорд, если пользователь залогинен
+    const user = Auth.getCurrent();
+    const users = Auth.getUsers();
+    const u = user ? users[user] : null;
+
+    gameBest = (u && u.records && u.records[currentGame]) || 0;
+    gameBestEl.textContent = gameBest;
+
+    gameScore = 0;
+    gameScoreEl.textContent = 0;
+}
+
+// Отправить результат в таблицу лидеров
+function submitScore(gameId, score) {
+    const type = GAME_TYPES[gameId] || 'high';
+    Leaderboard.submit(gameId, score, type);
+}
 
 closeBtn.addEventListener('click', () => {
     currentGame = null;
@@ -186,8 +776,8 @@ document.querySelectorAll('.play-btn').forEach(btn => {
 });
 
 function startGame(game) {
-    resetScore();
     currentGame = game;
+    resetScore();
 
     if (game === 'snake') startSnake();
     else if (game === 'guess') startGuess();
@@ -233,8 +823,6 @@ function startSnake() {
     function draw() {
         c.fillStyle = '#050510';
         c.fillRect(0, 0, canvas.width, canvas.height);
-
-        // Сетка
         c.strokeStyle = 'rgba(0, 212, 255, 0.06)';
         for (let i = 0; i <= cells; i++) {
             c.beginPath();
@@ -242,8 +830,6 @@ function startSnake() {
             c.moveTo(0, i * size); c.lineTo(canvas.width, i * size);
             c.stroke();
         }
-
-        // Еда
         c.fillStyle = '#ff006e';
         c.shadowBlur = 20;
         c.shadowColor = '#ff006e';
@@ -251,8 +837,6 @@ function startSnake() {
         c.arc(food.x * size + size / 2, food.y * size + size / 2, size / 2 - 2, 0, Math.PI * 2);
         c.fill();
         c.shadowBlur = 0;
-
-        // Змейка
         snake.forEach((s, i) => {
             c.fillStyle = i === 0 ? '#00ff9d' : '#00d4ff';
             c.shadowBlur = i === 0 ? 20 : 10;
@@ -264,7 +848,6 @@ function startSnake() {
 
     function step() {
         if (!alive) return;
-
         dir = nextDir;
         const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
 
@@ -272,11 +855,11 @@ function startSnake() {
             snake.some(s => s.x === head.x && s.y === head.y)) {
             alive = false;
             document.getElementById('snakeMsg').textContent = `💀 Игра окончена! Счёт: ${score}`;
+            submitScore('snake', score);
             return;
         }
 
         snake.unshift(head);
-
         if (head.x === food.x && head.y === food.y) {
             score += 10;
             setScore(score);
@@ -284,7 +867,6 @@ function startSnake() {
         } else {
             snake.pop();
         }
-
         draw();
     }
 
@@ -300,12 +882,11 @@ function startSnake() {
 
     document.addEventListener('keydown', onKey);
 
-    function restart() {
+    document.getElementById('snakeRestart').addEventListener('click', () => {
         clearInterval(loop);
         document.removeEventListener('keydown', onKey);
         startSnake();
-    }
-    document.getElementById('snakeRestart').addEventListener('click', restart);
+    });
 
     draw();
     loop = setInterval(step, 120);
@@ -319,7 +900,7 @@ function startGuess() {
 
     gameBody.innerHTML = `
         <div style="text-align:center;">
-            <p style="color:#b0b0d0; margin-bottom:20px;">Я загадал число от 1 до 100. Попробуй угадать!</p>
+            <p style="color:var(--text-secondary); margin-bottom:20px;">Я загадал число от 1 до 100. Попробуй угадать!</p>
             <div class="guess-input">
                 <input type="number" id="guessInput" min="1" max="100" placeholder="?" autofocus>
                 <button class="game-btn" id="guessBtn">Проверить</button>
@@ -346,6 +927,7 @@ function startGuess() {
             msg.textContent = `🎉 Угадал! Число ${secret}. Попыток: ${tries}`;
             msg.style.color = '#00ff9d';
             btn.disabled = true;
+            submitScore('guess', tries);
         } else if (val < secret) {
             msg.textContent = `📈 Больше! (попытка ${tries})`;
             msg.style.color = '#00d4ff';
@@ -369,7 +951,7 @@ function startReaction() {
     gameTitle.textContent = '🎯 Реакция';
     gameBody.innerHTML = `
         <div style="text-align:center;">
-            <p style="color:#b0b0d0; margin-bottom:20px;">Кликни, когда экран станет зелёным!</p>
+            <p style="color:var(--text-secondary); margin-bottom:20px;">Кликни, когда экран станет зелёным!</p>
             <div class="reaction-box" id="reactionBox" style="background:#ff006e;">
                 Нажми, чтобы начать
             </div>
@@ -411,6 +993,7 @@ function startReaction() {
             box.textContent = `${time} мс`;
             msg.textContent = time < 250 ? '🔥 Молния!' : time < 400 ? '⚡ Отлично!' : '👍 Неплохо!';
             msg.style.color = '#00ff9d';
+            submitScore('reaction', time);
         }
     });
 
@@ -420,7 +1003,7 @@ function startReaction() {
 // ========== 🧩 ПЯТНАШКИ ==========
 function startPuzzle() {
     gameTitle.textContent = '🧩 Пятнашки';
-    let tiles = [...Array(9).keys()].slice(1).concat(0); // 1-8 + пустая
+    let tiles = [...Array(9).keys()].slice(1).concat(0);
     tiles = shuffle(tiles);
 
     function shuffle(a) {
@@ -434,7 +1017,7 @@ function startPuzzle() {
     function render() {
         gameBody.innerHTML = `
             <div style="text-align:center;">
-                <p style="color:#b0b0d0; margin-bottom:20px;">Собери числа от 1 до 8 по порядку</p>
+                <p style="color:var(--text-secondary); margin-bottom:20px;">Собери числа от 1 до 8 по порядку</p>
                 <div class="puzzle-grid" id="puzzleGrid"></div>
                 <div class="game-message" id="puzzleMsg" style="margin-top:20px;"></div>
                 <button class="game-btn" id="puzzleRestart" style="margin-top:15px;">Перемешать</button>
@@ -467,8 +1050,9 @@ function startPuzzle() {
         if (solved) {
             const msg = document.getElementById('puzzleMsg');
             if (msg) {
-                msg.textContent = '🎉 Победа! Ты собрал пятнашки!';
+                msg.textContent = `🎉 Победа! Ходов: ${gameScore}`;
                 msg.style.color = '#00ff9d';
+                submitScore('puzzle', gameScore);
             }
         }
     }
@@ -493,7 +1077,7 @@ function startMemory() {
 
     gameBody.innerHTML = `
         <div style="text-align:center;">
-            <p style="color:#b0b0d0; margin-bottom:20px;">Найди все пары карточек</p>
+            <p style="color:var(--text-secondary); margin-bottom:20px;">Найди все пары карточек</p>
             <div class="memory-grid" id="memoryGrid"></div>
             <div class="game-message" id="memoryMsg" style="margin-top:20px;"></div>
             <button class="game-btn" id="memoryRestart" style="margin-top:15px;">Заново</button>
@@ -529,6 +1113,7 @@ function startMemory() {
                     const msg = document.getElementById('memoryMsg');
                     msg.textContent = `🎉 Победа! Ходов: ${moves}`;
                     msg.style.color = '#00ff9d';
+                    submitScore('memory', moves);
                 }
             } else {
                 setTimeout(() => {
@@ -599,18 +1184,15 @@ function startShooter() {
     function update() {
         if (!alive) return;
 
-        // Игрок
         if (keys['arrowleft'] || keys['a']) player.x -= player.speed;
         if (keys['arrowright'] || keys['d']) player.x += player.speed;
         player.x = Math.max(player.w / 2, Math.min(W - player.w / 2, player.x));
 
-        // Пули
         bullets = bullets.filter(b => {
             b.y -= 8;
             return b.y > -10;
         });
 
-        // Враги
         spawnTimer++;
         if (spawnTimer > 40) { spawnEnemy(); spawnTimer = 0; }
 
@@ -619,16 +1201,15 @@ function startShooter() {
             e.x += e.vx;
             if (e.x < e.r || e.x > W - e.r) e.vx *= -1;
 
-            // Столкновение с игроком
             if (e.y + e.r > player.y - player.h / 2 &&
                 Math.abs(e.x - player.x) < player.w / 2 + e.r) {
                 alive = false;
                 explode(e.x, e.y, '#ff006e');
                 document.getElementById('shooterMsg').textContent = `💀 Игра окончена! Счёт: ${score}`;
+                submitScore('shooter', score);
             }
         });
 
-        // Пуля-враг
         bullets.forEach((b, bi) => {
             enemies.forEach((e, ei) => {
                 const dx = b.x - e.x, dy = b.y - e.y;
@@ -644,7 +1225,6 @@ function startShooter() {
 
         enemies = enemies.filter(e => e.y < H + 30);
 
-        // Частицы
         particles = particles.filter(p => {
             p.x += p.vx;
             p.y += p.vy;
@@ -657,13 +1237,11 @@ function startShooter() {
         c.fillStyle = '#050510';
         c.fillRect(0, 0, W, H);
 
-        // Звёзды
         for (let i = 0; i < 50; i++) {
             c.fillStyle = `rgba(255,255,255,${Math.random() * 0.5})`;
             c.fillRect((i * 97) % W, (i * 53 + Date.now() * 0.05) % H, 1, 1);
         }
 
-        // Игрок (корабль)
         c.fillStyle = '#00d4ff';
         c.shadowBlur = 20;
         c.shadowColor = '#00d4ff';
@@ -674,7 +1252,6 @@ function startShooter() {
         c.closePath();
         c.fill();
 
-        // Пули
         c.shadowColor = '#00ff9d';
         bullets.forEach(b => {
             c.fillStyle = '#00ff9d';
@@ -682,7 +1259,6 @@ function startShooter() {
             c.fillRect(b.x - 2, b.y - 8, 4, 12);
         });
 
-        // Враги
         c.shadowColor = '#ff006e';
         enemies.forEach(e => {
             c.fillStyle = '#ff006e';
@@ -690,7 +1266,6 @@ function startShooter() {
             c.beginPath();
             c.arc(e.x, e.y, e.r, 0, Math.PI * 2);
             c.fill();
-            // Глаз
             c.fillStyle = '#fff';
             c.shadowBlur = 0;
             c.beginPath();
@@ -698,14 +1273,12 @@ function startShooter() {
             c.fill();
         });
 
-        // Частицы
         particles.forEach(p => {
             c.fillStyle = p.color;
             c.globalAlpha = p.life / 30;
             c.fillRect(p.x, p.y, 3, 3);
             c.globalAlpha = 1;
         });
-
         c.shadowBlur = 0;
     }
 
@@ -736,4 +1309,32 @@ function startShooter() {
     });
 
     loopFn();
+}
+
+// ==========================================================
+// ===== ИНИЦИАЛИЗАЦИЯ =====
+// ==========================================================
+updateAuthUI();
+renderLeaderboard();
+
+// Подсказка для новых пользователей
+if (!Auth.getCurrent()) {
+    setTimeout(() => {
+        const hint = document.createElement('div');
+        hint.style.cssText = `
+            position: fixed; bottom: 20px; left: 20px;
+            background: linear-gradient(135deg, var(--neon-blue), var(--neon-purple));
+            color: #fff; padding: 15px 25px; border-radius: 12px;
+            font-weight: 600; z-index: 500; max-width: 300px;
+            box-shadow: 0 10px 40px var(--shadow-color);
+            animation: fadeUp 0.6s ease; cursor: pointer;
+        `;
+        hint.innerHTML = '👋 Зарегистрируйся, чтобы твои рекорды попали в таблицу лидеров!';
+        hint.addEventListener('click', () => {
+            hint.remove();
+            openAuthModal('register');
+        });
+        document.body.appendChild(hint);
+        setTimeout(() => hint.remove(), 8000);
+    }, 3000);
 }
