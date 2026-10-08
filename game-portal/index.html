@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GAME PORTAL — Твой игровой мир</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <!-- Анимированный фон -->
+    <canvas id="bg"></canvas>
+    <div class="grid-overlay"></div>
+
+    <!-- Навигация -->
+    <nav class="navbar">
+        <div class="logo">🎮 GAME<span>PORTAL</span></div>
+        <ul class="nav-links">
+            <li><a href="#home">Главная</a></li>
+            <li><a href="#games">Игры</a></li>
+            <li><a href="#play">Играть</a></li>
+            <li><a href="#news">Новости</a></li>
+            <li><a href="#contact">Контакты</a></li>
+        </ul>
+        <button class="burger" id="burger">☰</button>
+    </nav>
+
+    <!-- ТИТУЛЬНИК -->
+    <header id="home" class="hero">
+        <div class="hero-glow"></div>
+        <div class="hero-content">
+            <div class="badge">🔥 Более 1000 игр онлайн</div>
+            <h1 class="hero-title">GAME<span>PORTAL</span></h1>
+            <p class="hero-subtitle">Твой портал в мир игр — играй, соревнуйся, побеждай!</p>
+            <div class="hero-buttons">
+                <a href="#play" class="btn btn-primary">▶ Играть сейчас</a>
+                <a href="#games" class="btn btn-ghost">Каталог игр</a>
+            </div>
+            <div class="hero-stats">
+                <div><strong id="statPlayers">0</strong><span>онлайн игроков</span></div>
+                <div><strong id="statGames">0</strong><span>игр в каталоге</span></div>
+                <div><strong>24/7</strong><span>работаем всегда</span></div>
+            </div>
+        </div>
+        <div class="scroll-indicator">▼</div>
+    </header>
+
+    <!-- Каталог игр -->
+    <section id="games" class="section">
+        <h2 class="section-title">Каталог игр</h2>
+        <p class="section-subtitle">Выбирай жанр и погружайся в игру</p>
+
+        <div class="filters">
+            <button class="filter active" data-filter="all">Все</button>
+            <button class="filter" data-filter="action">Экшн</button>
+            <button class="filter" data-filter="arcade">Аркады</button>
+            <button class="filter" data-filter="logic">Логика</button>
+            <button class="filter" data-filter="puzzle">Головоломки</button>
+        </div>
+
+        <div class="games-grid">
+            <div class="game-card" data-category="arcade">
+                <div class="game-cover" style="background: linear-gradient(135deg,#ff006e,#8338ec);">🐍</div>
+                <div class="game-info">
+                    <h3>Змейка</h3>
+                    <p>Классика жанра. Собирай яблоки и расти!</p>
+                    <div class="game-meta">
+                        <span class="tag">Аркада</span>
+                        <span class="rating">⭐ 4.9</span>
+                    </div>
+                    <button class="play-btn" data-game="snake">Играть</button>
+                </div>
+            </div>
+
+            <div class="game-card" data-category="logic">
+                <div class="game-cover" style="background: linear-gradient(135deg,#00d4ff,#0066ff);">🧠</div>
+                <div class="game-info">
+                    <h3>Угадай число</h3>
+                    <p>Проверь свою интуицию и логику!</p>
+                    <div class="game-meta">
+                        <span class="tag">Логика</span>
+                        <span class="rating">⭐ 4.7</span>
+                    </div>
+                    <button class="play-btn" data-game="guess">Играть</button>
+                </div>
+            </div>
+
+            <div class="game-card" data-category="arcade">
+                <div class="game-cover" style="background: linear-gradient(135deg,#ffaa00,#ff006e);">🎯</div>
+                <div class="game-info">
+                    <h3>Реакция</h3>
+                    <p>Кликай как можно быстрее. Бей рекорды!</p>
+                    <div class="game-meta">
+                        <span class="tag">Аркада</span>
+                        <span class="rating">⭐ 4.8</span>
+                    </div>
+                    <button class="play-btn" data-game="reaction">Играть</button>
+                </div>
+            </div>
+
+            <div class="game-card" data-category="puzzle">
+                <div class="game-cover" style="background: linear-gradient(135deg,#00ff9d,#00d4ff);">🧩</div>
+                <div class="game-info">
+                    <h3>Пятнашки</h3>
+                    <p>Собери числа по порядку. Классика!</p>
+                    <div class="game-meta">
+                        <span class="tag">Головоломка</span>
+                        <span class="rating">⭐ 4.6</span>
+                    </div>
+                    <button class="play-btn" data-game="puzzle">Играть</button>
+                </div>
+            </div>
+
+            <div class="game-card" data-category="action">
+                <div class="game-cover" style="background: linear-gradient(135deg,#8338ec,#3a86ff);">👾</div>
+                <div class="game-info">
+                    <h3>Космический шутер</h3>
+                    <p>Уничтожай врагов и защищай Землю!</p>
+                    <div class="game-meta">
+                        <span class="tag">Экшн</span>
+                        <span class="rating">⭐ 4.9</span>
+                    </div>
+                    <button class="play-btn" data-game="shooter">Играть</button>
+                </div>
+            </div>
+
+            <div class="game-card" data-category="logic">
+                <div class="game-cover" style="background: linear-gradient(135deg,#ff6b6b,#ffd93d);">🃏</div>
+                <div class="game-info">
+                    <h3>Память</h3>
+                    <p>Найди все пары карточек. Тренируй мозг!</p>
+                    <div class="game-meta">
+                        <span class="tag">Логика</span>
+                        <span class="rating">⭐ 4.5</span>
+                    </div>
+                    <button class="play-btn" data-game="memory">Играть</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Игровая зона -->
+    <section id="play" class="section play-section">
+        <h2 class="section-title">Игровая зона</h2>
+        <p class="section-subtitle">Выбери игру из каталога выше или играй прямо здесь</p>
+
+        <div class="game-window">
+            <div class="game-header">
+                <span id="gameTitle">🎮 Выбери игру</span>
+                <button id="closeGame" class="close-btn">✕</button>
+            </div>
+            <div class="game-body" id="gameBody">
+                <div class="game-placeholder">
+                    <div class="placeholder-icon">🎮</div>
+                    <p>Нажми <strong>«Играть»</strong> на любой карточке, чтобы запустить игру</p>
+                </div>
+            </div>
+            <div class="game-footer">
+                <span>Счёт: <strong id="gameScore">0</strong></span>
+                <span>Рекорд: <strong id="gameBest">0</strong></span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Новости -->
+    <section id="news" class="section">
+        <h2 class="section-title">Новости портала</h2>
+        <div class="news-grid">
+            <article class="news-card">
+                <div class="news-date">12 октября 2026</div>
+                <h3>🎉 Запуск нового сезона!</h3>
+                <p>Мы обновили портал и добавили 5 новых игр. Заходи и оцени!</p>
+            </article>
+            <article class="news-card">
+                <div class="news-date">5 октября 2026</div>
+                <h3>🏆 Турнир по «Змейке»</h3>
+                <p>Призовой фонд — 10 000 очков рейтинга. Регистрация открыта!</p>
+            </article>
+            <article class="news-card">
+                <div class="news-date">28 сентября 2026</div>
+                <h3>⚡ Ускорение серверов</h3>
+                <p>Мы улучшили скорость загрузки игр в 2 раза. Наслаждайтесь!</p>
+            </article>
+        </div>
+    </section>
+
+    <!-- Контакты -->
+    <section id="contact" class="section">
+        <h2 class="section-title">Свяжитесь с нами</h2>
+        <p class="section-subtitle">Есть идея для игры или вопрос? Пиши!</p>
+        <form class="contact-form" id="contactForm">
+            <div class="form-row">
+                <input type="text" placeholder="Ваш никнейм" required>
+                <input type="email" placeholder="Email" required>
+            </div>
+            <textarea placeholder="Ваше сообщение" rows="5" required></textarea>
+            <button type="submit" class="btn btn-primary">Отправить 🚀</button>
+            <p class="form-message" id="formMessage"></p>
+        </form>
+    </section>
+
+    <!-- Футер -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-logo">🎮 GAMEPORTAL</div>
+            <p>© 2026 GAME PORTAL — Твой игровой мир. Сделано с ❤️ и 🎮</p>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
